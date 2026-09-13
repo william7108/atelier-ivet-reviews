@@ -15,11 +15,6 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-
-/* =========================================================
-   NAČTENÍ SCHVÁLENÝCH RECENZÍ
-========================================================= */
-
 export async function GET() {
   const { data, error } = await supabase
     .from("website_reviews")
@@ -44,11 +39,6 @@ export async function GET() {
   });
 }
 
-
-/* =========================================================
-   NOVÁ RECENZE
-========================================================= */
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -58,32 +48,10 @@ export async function POST(request: Request) {
     const review = String(body.review ?? "").trim();
     const rating = Number(body.rating);
 
-    /* =========================
-       KONTROLA DAT
-    ========================== */
-
     if (!name || !email || !review) {
       return NextResponse.json(
         {
           error: "Prosím vyplňte všechna povinná pole.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (name.length > 100) {
-      return NextResponse.json(
-        {
-          error: "Jméno je příliš dlouhé.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (review.length > 3000) {
-      return NextResponse.json(
-        {
-          error: "Recenze je příliš dlouhá.",
         },
         { status: 400 }
       );
@@ -114,11 +82,6 @@ export async function POST(request: Request) {
       );
     }
 
-
-    /* =========================
-       ULOŽENÍ DO SUPABASE
-    ========================== */
-
     const { data: insertedReview, error: insertError } =
       await supabaseAdmin
         .from("website_reviews")
@@ -148,23 +111,14 @@ export async function POST(request: Request) {
       );
     }
 
-
-    /* =========================
-       SCHVALOVACÍ ODKAZ
-    ========================== */
-
     const appUrl = process.env.APP_URL;
 
     if (!appUrl) {
-      console.error("APP_URL is missing");
-
-      return NextResponse.json(
-        {
-          success: true,
-          warning:
-            "Recenze byla uložena, ale nepodařilo se vytvořit schvalovací e-mail.",
-        }
-      );
+      return NextResponse.json({
+        success: true,
+        warning:
+          "Recenze byla uložena, ale chybí APP_URL.",
+      });
     }
 
     const approveUrl =
@@ -174,69 +128,56 @@ export async function POST(request: Request) {
         insertedReview.approval_token
       )}`;
 
-
-    /* =========================
-       HVĚZDIČKY
-    ========================== */
-
     const stars =
       "★".repeat(rating) +
       "☆".repeat(5 - rating);
 
+    const brevoApiKey =
+      process.env.BREVO_API_KEY;
 
-    /* =========================
-       EMAIL
-    ========================== */
-
-    const resendApiKey =
-      process.env.RESEND_API_KEY;
-
-    if (!resendApiKey) {
-      console.error("RESEND_API_KEY is missing");
-
-      return NextResponse.json(
-        {
-          success: true,
-          warning:
-            "Recenze byla uložena, ale e-mail nebyl odeslán.",
-        }
-      );
+    if (!brevoApiKey) {
+      return NextResponse.json({
+        success: true,
+        warning:
+          "Recenze byla uložena, ale chybí BREVO_API_KEY.",
+      });
     }
-
 
     const safeName = escapeHtml(name);
     const safeEmail = escapeHtml(email);
     const safeReview = escapeHtml(review);
     const safeStars = escapeHtml(stars);
 
-
     const emailResponse = await fetch(
-      "https://api.resend.com/emails",
+      "https://api.brevo.com/v3/smtp/email",
       {
         method: "POST",
 
         headers: {
-          Authorization: `Bearer ${resendApiKey}`,
+          "api-key": brevoApiKey,
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
 
         body: JSON.stringify({
-          from:
-            "Ateliér Ivet <onboarding@resend.dev>",
+          sender: {
+            name: "Ateliér Ivet",
+            email: "ivet.salon@seznam.cz",
+          },
 
-          to: [IVET_EMAIL],
+          to: [
+            {
+              email: IVET_EMAIL,
+              name: "Ateliér Ivet",
+            },
+          ],
 
           subject:
             `Nová recenze – ${name} – Ateliér Ivet`,
 
-          html: `
+          htmlContent: `
 <!DOCTYPE html>
-
 <html lang="cs">
-
-<head>
-<meta charset="UTF-8">
-</head>
 
 <body style="
   margin:0;
@@ -252,7 +193,6 @@ export async function POST(request: Request) {
   background:#ffffff;
   border:1px solid #d7c49c;
 ">
-
 
   <div style="
     background:#111111;
@@ -281,10 +221,7 @@ export async function POST(request: Request) {
 
   </div>
 
-
-  <div style="
-    padding:32px;
-  ">
+  <div style="padding:32px;">
 
     <p style="
       margin-top:0;
@@ -295,71 +232,22 @@ export async function POST(request: Request) {
       nová recenze, která čeká na schválení.
     </p>
 
+    <p>
+      <strong>Jméno:</strong>
+      ${safeName}
+    </p>
 
-    <table
-      cellpadding="0"
-      cellspacing="0"
-      style="
-        width:100%;
-        margin-top:25px;
-        border-collapse:collapse;
-      "
-    >
+    <p>
+      <strong>E-mail:</strong>
+      ${safeEmail}
+    </p>
 
-      <tr>
-        <td style="
-          padding:10px 0;
-          color:#777;
-          width:120px;
-        ">
-          Jméno:
-        </td>
-
-        <td style="
-          padding:10px 0;
-          font-weight:bold;
-        ">
-          ${safeName}
-        </td>
-      </tr>
-
-
-      <tr>
-        <td style="
-          padding:10px 0;
-          color:#777;
-        ">
-          E-mail:
-        </td>
-
-        <td style="
-          padding:10px 0;
-        ">
-          ${safeEmail}
-        </td>
-      </tr>
-
-
-      <tr>
-        <td style="
-          padding:10px 0;
-          color:#777;
-        ">
-          Hodnocení:
-        </td>
-
-        <td style="
-          padding:10px 0;
-          color:#d4af37;
-          font-size:20px;
-          letter-spacing:2px;
-        ">
-          ${safeStars}
-        </td>
-      </tr>
-
-    </table>
-
+    <p style="
+      color:#d4af37;
+      font-size:20px;
+    ">
+      ${safeStars}
+    </p>
 
     <div style="
       margin-top:25px;
@@ -370,11 +258,8 @@ export async function POST(request: Request) {
       font-size:16px;
       line-height:1.7;
     ">
-
       „${safeReview.replace(/\n/g, "<br>")}“
-
     </div>
-
 
     <div style="
       text-align:center;
@@ -391,7 +276,6 @@ export async function POST(request: Request) {
           padding:16px 30px;
           font-size:13px;
           letter-spacing:2px;
-          border:1px solid #111111;
         "
       >
         SCHVÁLIT RECENZI
@@ -399,29 +283,16 @@ export async function POST(request: Request) {
 
     </div>
 
-
     <p style="
       text-align:center;
       color:#888;
       font-size:12px;
       line-height:1.6;
     ">
-      Dokud na tlačítko SCHVÁLIT RECENZI
-      nekliknete, recenze nebude na webu veřejně
+      Dokud recenzi neschválíte, nebude veřejně
       zobrazena.
     </p>
 
-  </div>
-
-
-  <div style="
-    border-top:1px solid #eee;
-    padding:20px;
-    text-align:center;
-    color:#999;
-    font-size:11px;
-  ">
-    Ateliér Ivet – systém recenzí
   </div>
 
 </div>
@@ -433,33 +304,21 @@ export async function POST(request: Request) {
       }
     );
 
-
-    /* =========================
-       KONTROLA RESEND
-    ========================== */
-
     if (!emailResponse.ok) {
-      const resendError =
+      const errorText =
         await emailResponse.text();
 
       console.error(
-        "Resend error:",
-        resendError
+        "Brevo error:",
+        errorText
       );
 
-      return NextResponse.json(
-        {
-          success: true,
-          warning:
-            "Recenze byla uložena, ale schvalovací e-mail se nepodařilo odeslat.",
-        }
-      );
+      return NextResponse.json({
+        success: true,
+        warning:
+          "Recenze byla uložena, ale schvalovací e-mail se nepodařilo odeslat.",
+      });
     }
-
-
-    /* =========================
-       HOTOVO
-    ========================== */
 
     return NextResponse.json({
       success: true,
@@ -478,9 +337,7 @@ export async function POST(request: Request) {
         error:
           "Při odesílání recenze došlo k chybě.",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
